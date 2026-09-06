@@ -66,6 +66,13 @@ describe('font lifecycle', () => {
     expect(manager.isNodeBlocked('second')).toBe(true)
   })
 
+  test('has no local font access to restore outside the browser', async () => {
+    const manager = new FontManager()
+    expect(manager.localAccessState()).toBe('unsupported')
+    await expect(manager.restoreLocalFontAccess()).resolves.toBe(false)
+    expect(manager.localAccessState()).toBe('unsupported')
+  })
+
   test('rejects a text picture observed before the font generation changed', () => {
     const graph = new SceneGraph()
     const node = graph.createNode('TEXT', pageId(graph), {

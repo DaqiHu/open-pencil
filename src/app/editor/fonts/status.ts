@@ -1,11 +1,10 @@
 import { computed, ref } from 'vue'
 
-import { computeAllLayouts } from '@open-pencil/core/layout'
-import { documentFontStatus, fontManager, fontResolver } from '@open-pencil/core/text'
+import { documentFontStatus, fontManager } from '@open-pencil/core/text'
 import { useEditorEvent } from '@open-pencil/vue'
 
 import { useEditorStore } from '@/app/editor/active-store'
-import { loadFont, requestLocalFontAccess } from '@/app/editor/fonts'
+import { reloadUnavailableFontFaces, requestLocalFontAccess } from '@/app/editor/fonts'
 
 export function useDocumentFontStatus() {
   const editor = useEditorStore()
@@ -34,28 +33,19 @@ export function useDocumentFontStatus() {
     const preparation = editor.preparationController.begin({ kind: 'font-retry' })
     let succeeded = false
     try {
-      if (fontManager.localAccessState() === 'prompt') {
+      // The button click supplies the user gesture Chrome requires to ask for
+      // local font access; an already-granted permission needs no gesture.
+      if (fontManager.localAccessState() !== 'granted') {
         await requestLocalFontAccess().catch(() => [])
       }
-      const issues = status.value.issues
-      await Promise.all(
-        issues.map(async ({ family, style }) => {
-          fontManager.resetWebFontFailures(family, style)
-          fontResolver.reset(
-            `face:${family.trim().toLocaleLowerCase()}:${style.toLocaleLowerCase()}`
+      if (await reloadUnavailableFontFaces(editor, preparation.signal)) {
+        preparation.update({ phase: 'preparing-render' })
+        if (editor.renderer) {
+          await editor.preparationController.waitForPresentation(
+            preparation.id,
+            editor.state.sceneVersion
           )
-          await loadFont(family, style, '', preparation.signal)
-        })
-      )
-      editor.renderer?.invalidateAllPictures()
-      computeAllLayouts(editor.graph, editor.state.currentPageId)
-      preparation.update({ phase: 'preparing-render' })
-      editor.requestRender()
-      if (editor.renderer) {
-        await editor.preparationController.waitForPresentation(
-          preparation.id,
-          editor.state.sceneVersion
-        )
+        }
       }
       refresh()
       succeeded = true

@@ -1,11 +1,16 @@
 import { useLocalStorage } from '@vueuse/core'
 import { watch } from 'vue'
 
+import type { Editor } from '@open-pencil/core/editor'
+import { computeAllLayouts } from '@open-pencil/core/layout'
 import {
   DEFAULT_WEB_FONT_PROVIDER_SETTINGS,
   WEB_FONT_PROVIDER_IDS,
   collectGraphFontRequirements,
+  documentFontStatus,
+  fontFaceDemandKey,
   fontManager,
+  fontResolver,
   missingGraphFontScripts,
   type FontFamilyOption,
   type LocalFontAccessState,
@@ -93,6 +98,7 @@ export function preloadFonts(): void {
     void getTauriFonts().then(registerFontFaces)
     return
   }
+  void fontManager.restoreLocalFontAccess()
   if (onlineFontsEnabled.value) fontManager.preloadWebFontFamilies()
 }
 
@@ -217,4 +223,29 @@ export async function loadFont(
 ): Promise<ArrayBuffer | null> {
   configureTauriFontCache()
   return fontManager.loadFont(family, style, characters, signal)
+}
+
+/**
+ * Reloads every face the document status flags as unavailable or substituted,
+ * then repaints. Settled resolver entries latch, so each face demand must be
+ * reset before the load cascade can reach sources that just became available
+ * (e.g. local fonts after access was granted).
+ */
+export async function reloadUnavailableFontFaces(
+  editor: Editor,
+  signal?: AbortSignal
+): Promise<boolean> {
+  const issues = documentFontStatus(editor.graph, editor.state.currentPageId).issues
+  if (issues.length === 0) return false
+  await Promise.all(
+    issues.map(async ({ family, style }) => {
+      fontManager.resetWebFontFailures(family, style)
+      fontResolver.reset(fontFaceDemandKey(family, style))
+      await loadFont(family, style, '', signal)
+    })
+  )
+  editor.renderer?.invalidateAllPictures()
+  computeAllLayouts(editor.graph, editor.state.currentPageId)
+  editor.requestRender()
+  return true
 }

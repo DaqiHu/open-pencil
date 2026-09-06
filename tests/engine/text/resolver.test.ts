@@ -3,6 +3,8 @@ import { describe, expect, test } from 'bun:test'
 import {
   FontResolver,
   fontCoverageDemand,
+  fontFaceDemand,
+  fontFaceDemandKey,
   missingGlyphCharacters,
   missingGlyphScripts,
   type FontResolutionCandidate,
@@ -144,6 +146,18 @@ describe('FontResolver', () => {
     resolver.reset(demand)
 
     expect(resolver.state(demand).state).toBe('idle')
+  })
+})
+
+describe('fontFaceDemandKey', () => {
+  test('matches the key embedded in face demands', () => {
+    expect(fontFaceDemandKey('Microsoft YaHei', 'Bold')).toBe(
+      fontFaceDemand('Microsoft YaHei', 'Bold').key
+    )
+  })
+
+  test('normalizes case and surrounding whitespace', () => {
+    expect(fontFaceDemandKey('  Inter ', 'BOLD')).toBe('face:inter:bold')
   })
 })
 
