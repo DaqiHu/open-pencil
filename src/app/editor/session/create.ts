@@ -2,6 +2,7 @@ import { shallowReactive } from 'vue'
 
 import { createEditor } from '@open-pencil/core/editor'
 import { BUILTIN_IO_FORMATS, IORegistry } from '@open-pencil/core/io'
+import { fontManager } from '@open-pencil/core/text'
 import { SceneGraph } from '@open-pencil/scene-graph'
 
 import { recordPreparationOutcome } from '@/app/diagnostics'
@@ -12,7 +13,7 @@ import {
 } from '@/app/editor/active-store'
 import { resolveFigmaClipboardImages } from '@/app/editor/clipboard/figma-images'
 import { bindClipboardNotifications } from '@/app/editor/clipboard/notifications'
-import { loadFont } from '@/app/editor/fonts'
+import { loadFont, reloadUnavailableFontFaces } from '@/app/editor/fonts'
 import { createCanvasPaneRegistry } from '@/app/editor/panes/registry'
 import { createEditorPreparationController } from '@/app/editor/preparation/controller'
 import {
@@ -56,6 +57,13 @@ export function createEditorStore(initialGraph?: SceneGraph) {
   })
   const io = new IORegistry(BUILTIN_IO_FORMATS)
   bindClipboardNotifications(editor)
+
+  // Local font access can arrive after fonts already substituted: the startup
+  // permission restore, or a grant from the font picker/settings. Heal the
+  // document instead of leaving the Retry banner up.
+  const stopLocalFontAccessHeal = fontManager.onLocalAccessGranted(() => {
+    void reloadUnavailableFontFaces(editor)
+  })
 
   if (initialGraph) {
     editor.subscribeToGraph()
@@ -216,6 +224,12 @@ export function createEditorStore(initialGraph?: SceneGraph) {
   }
 
   defineEditorStoreAccessors(store, editor)
+
+  const disposeStore = store.dispose
+  store.dispose = () => {
+    stopLocalFontAccessHeal()
+    disposeStore()
+  }
 
   return store
 }

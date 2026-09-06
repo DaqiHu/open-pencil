@@ -19,13 +19,17 @@ function faceCandidate(
   return { id: `${source}:${family}:${style}`, family, style, source }
 }
 
+export function fontFaceDemandKey(family: string, style: string): string {
+  return `face:${family.trim().toLocaleLowerCase()}:${style.toLocaleLowerCase()}`
+}
+
 export function fontFaceDemand(
   family: string,
   style: string,
   characters = ''
 ): FontResolutionDemand {
   return {
-    key: `face:${family.trim().toLocaleLowerCase()}:${style.toLocaleLowerCase()}`,
+    key: fontFaceDemandKey(family, style),
     characters,
     candidates: [
       faceCandidate(family, style, 'registered'),

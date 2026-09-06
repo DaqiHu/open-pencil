@@ -52,6 +52,8 @@ export class FontManager {
   private providerRegistrations = new WeakMap<TypefaceFontProvider, Map<string, Set<ArrayBuffer>>>()
   private localFonts: FontInfo[] | null = null
   private localFontAccessState: LocalFontAccessState = IS_BROWSER ? 'prompt' : 'unsupported'
+  private localAccessGrantedListeners = new Set<() => void>()
+  private localFontPermissionWatch: PermissionStatus | null = null
   private downloadedFontCache: DownloadedFontCache | null = null
   private fallbackUserAgent: string | undefined
   private hostFontLoader: HostFontLoader | null = null
@@ -114,6 +116,84 @@ export class FontManager {
     return this.localFontAccessState
   }
 
+  onLocalAccessGranted(listener: () => void): () => void {
+    this.localAccessGrantedListeners.add(listener)
+    return () => {
+      this.localAccessGrantedListeners.delete(listener)
+    }
+  }
+
+  async requestLocalFontAccess(): Promise<FontInfo[]> {
+    if (!IS_BROWSER || !window.queryLocalFonts) {
+      this.localFontAccessState = 'unsupported'
+      this.localFonts = []
+      return []
+    }
+    const wasGranted = this.localFontAccessState === 'granted'
+    try {
+      const fonts = await window.queryLocalFonts()
+      const seen = new Set<string>()
+      const result: FontInfo[] = []
+      for (const f of fonts) {
+        const key = `${f.family}|${f.style}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        result.push({
+          family: f.family,
+          fullName: f.fullName,
+          style: f.style,
+          postscriptName: f.postscriptName
+        })
+      }
+      this.localFonts = result
+      this.localFontAccessState = 'granted'
+      if (!wasGranted) {
+        for (const listener of this.localAccessGrantedListeners) listener()
+      }
+      return result
+    } catch {
+      this.localFonts = []
+      this.localFontAccessState = 'denied'
+      return []
+    }
+  }
+
+  /**
+   * Re-establishes local font access the browser persisted across reloads.
+   * Chrome answers queryLocalFonts() without transient activation once the
+   * local-fonts permission is granted, so this probe may run before any user
+   * gesture; without the probe the in-memory access state resets to 'prompt'
+   * on every reload and locally installed fonts substitute until Retry.
+   */
+  async restoreLocalFontAccess(): Promise<boolean> {
+    if (!IS_BROWSER || !window.queryLocalFonts) return false
+    if (this.localFontAccessState === 'granted') return true
+    if (this.localFontAccessState === 'unsupported') return false
+    if (!navigator.permissions?.query) return false
+    let permission: PermissionStatus
+    try {
+      // 'local-fonts' is not yet part of the PermissionName union.
+      permission = await navigator.permissions.query({ name: 'local-fonts' as PermissionName })
+    } catch {
+      return false
+    }
+    this.watchLocalFontPermission(permission)
+    if (permission.state !== 'granted') return false
+    await this.requestLocalFontAccess()
+    return this.localAccessState() === 'granted'
+  }
+
+  private watchLocalFontPermission(permission: PermissionStatus): void {
+    if (this.localFontPermissionWatch === permission) return
+    this.localFontPermissionWatch = permission
+    permission.addEventListener('change', () => {
+      // A grant through the browser's site settings needs no gesture either.
+      if (permission.state === 'granted' && this.localFontAccessState !== 'granted') {
+        void this.requestLocalFontAccess()
+      }
+    })
+  }
+
   setDownloadedFontCache(cache: DownloadedFontCache | null): void {
     this.downloadedFontCache = cache
   }
@@ -154,37 +234,6 @@ export class FontManager {
     for (const character of normalizedCoverageText(characters)) loadedCoverage.add(character)
     this.remoteCoverage.set(key, loadedCoverage)
     return this.registerAndCache(family, style, cached, 'cache')
-  }
-
-  async requestLocalFontAccess(): Promise<FontInfo[]> {
-    if (!IS_BROWSER || !window.queryLocalFonts) {
-      this.localFontAccessState = 'unsupported'
-      this.localFonts = []
-      return []
-    }
-    try {
-      const fonts = await window.queryLocalFonts()
-      const seen = new Set<string>()
-      const result: FontInfo[] = []
-      for (const f of fonts) {
-        const key = `${f.family}|${f.style}`
-        if (seen.has(key)) continue
-        seen.add(key)
-        result.push({
-          family: f.family,
-          fullName: f.fullName,
-          style: f.style,
-          postscriptName: f.postscriptName
-        })
-      }
-      this.localFonts = result
-      this.localFontAccessState = 'granted'
-      return result
-    } catch {
-      this.localFonts = []
-      this.localFontAccessState = 'denied'
-      return []
-    }
   }
 
   async listFamilies(): Promise<string[]> {
