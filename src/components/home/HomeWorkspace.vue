@@ -2,8 +2,11 @@
 import { computed, ref, watch } from 'vue'
 import { useLocalStorage } from '@vueuse/core'
 
+import { extractFigThumbnailFromBytes, extractFigThumbnailFromReader } from '@open-pencil/fig'
 import { useDocumentWorkspace, useI18n } from '@open-pencil/vue'
 
+import { getRecoveryStore } from '@/app/document/recovery'
+import { recoveryEnabled } from '@/app/document/recovery/preferences'
 import {
   activeStorageProviderID,
   readStoragePreferences,
@@ -15,13 +18,23 @@ import {
   clearRecentFiles,
   forgetRecentDocument,
   loadRecentFileThumbnail,
+  readRecentBrowserFileHandle,
   recentFiles,
-  type RecentDocument
+  type RecentBrowserFileDocument,
+  type RecentHomeDocument,
+  type RecentRecoveryDocument
 } from '@/app/recent-files'
 import { openSettingsDialog } from '@/app/settings/dialog'
 import { openFileFromPath } from '@/app/shell/menu/use'
 import { createStorageWorkspaceSource } from '@/app/storage/workspace/source'
-import { openStorageDocumentInNewTab } from '@/app/tabs'
+import {
+  getTabsSnapshot,
+  listRecoverySnapshots,
+  openFileInNewTab,
+  openStorageDocumentInNewTab,
+  restoreRecoverySnapshot,
+  switchTab
+} from '@/app/tabs'
 import HomeSearchActions from '@/components/home/search/HomeSearchActions.vue'
 import Tip from '@/components/ui/overlay/Tip.vue'
 
@@ -32,16 +45,55 @@ const query = ref('')
 const openError = ref<string | null>(null)
 const storageConfigured = ref(storagePreferencesComplete(activeStorageProviderID.value))
 
-const workspace = useDocumentWorkspace<RecentDocument>({
+let listedDocuments: RecentHomeDocument[] = []
+
+async function loadRecoveryPreview(snapshotId: string): Promise<Uint8Array | null> {
+  const snapshot = await getRecoveryStore().read(snapshotId)
+  return snapshot ? extractFigThumbnailFromBytes(snapshot.figBytes) : null
+}
+
+async function loadBrowserFilePreview(id: string): Promise<Uint8Array | null> {
+  const handle = await readRecentBrowserFileHandle(id)
+  if (!handle || !handle.name.toLowerCase().endsWith('.fig')) return null
+  // Previews are opportunistic: without a granted read permission the click
+  // to open the file runs the permission prompt instead.
+  if ((await handle.queryPermission?.({ mode: 'read' })) !== 'granted') return null
+  const file = await handle.getFile()
+  return extractFigThumbnailFromReader({
+    size: file.size,
+    read: async (start, endExclusive) =>
+      new Uint8Array(await file.slice(start, endExclusive).arrayBuffer())
+  })
+}
+
+const workspace = useDocumentWorkspace<RecentHomeDocument>({
   source: {
     async refresh() {
-      return recentFiles.value
+      const snapshots = recoveryEnabled.value ? await listRecoverySnapshots() : []
+      const recoveryDocuments = snapshots.map(
+        (snapshot): RecentRecoveryDocument => ({
+          id: `recovery:${snapshot.id}`,
+          kind: 'recovery',
+          snapshotId: snapshot.id,
+          name: snapshot.documentName,
+          updatedAt: snapshot.updatedAt
+        })
+      )
+      const merged = [...recoveryDocuments, ...recentFiles.value]
+      merged.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      listedDocuments = merged
+      return merged
     },
     loadPreview(documentId) {
-      const document = recentFiles.value.find((candidate) => candidate.id === documentId)
+      const document = listedDocuments.find((candidate) => candidate.id === documentId)
       if (!document) return Promise.resolve(null)
       if (document.kind === 'local') return loadRecentFileThumbnail(document.path)
+      if (document.kind === 'recovery') return loadRecoveryPreview(document.snapshotId)
+      if (document.kind === 'file') return loadBrowserFilePreview(document.id)
       return createStorageWorkspaceSource(() => undefined).loadPreview(document.documentId)
+    },
+    subscribe(listener) {
+      return getRecoveryStore().subscribe?.(listener) ?? (() => {})
     }
   },
   refreshOnFocus: false,
@@ -89,12 +141,17 @@ const storageDescription = computed(() => {
 const storagePreviewURL = storageWorkspace.previewURL
 const vStoragePreview = storageWorkspace.previewDirective
 const normalizedQuery = computed(() => query.value.trim().toLocaleLowerCase(locale.value))
+
+function searchHaystack(document: RecentHomeDocument): string {
+  if (document.kind === 'local') return `${document.name}\n${document.path}`
+  if (document.kind === 'storage') return `${document.name}\n${document.documentId}`
+  return document.name
+}
+
 const filteredRecentFiles = computed(() => {
   if (!normalizedQuery.value) return documents.value
   return documents.value.filter((document) =>
-    `${document.name}\n${document.kind === 'local' ? document.path : document.documentId}`
-      .toLocaleLowerCase(locale.value)
-      .includes(normalizedQuery.value)
+    searchHaystack(document).toLocaleLowerCase(locale.value).includes(normalizedQuery.value)
   )
 })
 const filteredStorageDocuments = computed(() => {
@@ -103,7 +160,10 @@ const filteredStorageDocuments = computed(() => {
     document.name.toLocaleLowerCase(locale.value).includes(normalizedQuery.value)
   )
 })
-const hasRecentFiles = computed(() => documents.value.length > 0)
+// Recovery entries are unsaved work, not history: clearing must never delete them.
+const hasClearableRecentFiles = computed(() =>
+  documents.value.some((document) => document.kind !== 'recovery')
+)
 const noSearchMatches = computed(
   () =>
     Boolean(normalizedQuery.value) &&
@@ -112,12 +172,51 @@ const noSearchMatches = computed(
 )
 
 watch(recentFiles, () => void workspace.invalidate())
+watch(recoveryEnabled, () => void workspace.invalidate())
 
-async function openRecent(document: RecentDocument): Promise<void> {
+async function openRecoveryDocument(document: RecentRecoveryDocument): Promise<void> {
+  const openTab = getTabsSnapshot().find(
+    (tab) => tab.kind === 'document' && tab.store.getRecoveryId() === document.snapshotId
+  )
+  if (openTab) {
+    switchTab(openTab.id)
+    return
+  }
+  await restoreRecoverySnapshot(document.snapshotId)
+}
+
+async function openBrowserFileDocument(document: RecentBrowserFileDocument): Promise<void> {
+  const handle = await readRecentBrowserFileHandle(document.id)
+  if (!handle) throw new DOMException('The file is no longer available', 'NotFoundError')
+  if (handle.queryPermission && handle.requestPermission) {
+    if ((await handle.queryPermission({ mode: 'read' })) !== 'granted') {
+      const permission = await handle.requestPermission({ mode: 'read' })
+      if (permission !== 'granted') {
+        throw new Error(`Permission to open ${document.name} was not granted`)
+      }
+    }
+  }
+  const file = await handle.getFile()
+  await openFileInNewTab(file, handle)
+}
+
+function isMissingBrowserFile(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'NotFoundError'
+}
+
+async function openRecent(document: RecentHomeDocument): Promise<void> {
   openError.value = null
   try {
     if (document.kind === 'local') {
       await openFileFromPath(document.path)
+      return
+    }
+    if (document.kind === 'file') {
+      await openBrowserFileDocument(document)
+      return
+    }
+    if (document.kind === 'recovery') {
+      await openRecoveryDocument(document)
       return
     }
     const storageDocument = storageDocuments.value.find(
@@ -131,7 +230,10 @@ async function openRecent(document: RecentDocument): Promise<void> {
       }
     )
   } catch (error) {
-    forgetRecentDocument(document.id)
+    if (document.kind === 'local' || (document.kind === 'file' && isMissingBrowserFile(error))) {
+      forgetRecentDocument(document.id)
+    }
+    if (document.kind === 'recovery') void workspace.invalidate()
     openError.value = error instanceof Error ? error.message : String(error)
   }
 }
@@ -180,7 +282,7 @@ function formattedDate(updatedAt: string): string {
               </p>
             </div>
             <div class="ml-auto hidden shrink-0 items-center gap-1 sm:flex">
-              <Tip v-if="hasRecentFiles" :label="common.clear">
+              <Tip v-if="hasClearableRecentFiles" :label="common.clear">
                 <button
                   type="button"
                   class="flex size-10 items-center justify-center rounded text-muted hover:bg-hover hover:text-surface sm:size-7"
@@ -218,7 +320,7 @@ function formattedDate(updatedAt: string): string {
             </div>
           </div>
           <div class="mt-2 flex items-center justify-end gap-1 sm:hidden">
-            <Tip v-if="hasRecentFiles" :label="common.clear">
+            <Tip v-if="hasClearableRecentFiles" :label="common.clear">
               <button
                 type="button"
                 class="flex size-8 items-center justify-center rounded text-muted hover:bg-hover hover:text-surface"
@@ -261,11 +363,12 @@ function formattedDate(updatedAt: string): string {
             :key="document.id"
             type="button"
             class="group min-w-0 text-left"
+            data-test-id="recent-file-card"
             @click="openRecent(document)"
           >
             <div
               v-workspace-preview="document.id"
-              class="flex aspect-video items-center justify-center overflow-hidden rounded-lg border border-border bg-panel-field transition-colors group-hover:border-panel-focus"
+              class="relative flex aspect-video items-center justify-center overflow-hidden rounded-lg border border-border bg-panel-field transition-colors group-hover:border-panel-focus"
             >
               <img
                 v-if="previewURL(document.id)"
@@ -274,6 +377,12 @@ function formattedDate(updatedAt: string): string {
                 class="size-full object-cover transition-transform duration-200 group-hover:scale-[1.015]"
               />
               <icon-lucide-file-image v-else class="size-8 text-muted/40" />
+              <span
+                v-if="document.kind === 'recovery'"
+                class="absolute top-1.5 left-1.5 rounded bg-panel px-1.5 py-0.5 text-[10px] font-medium text-muted shadow-sm"
+              >
+                {{ files.unsavedDocument }}
+              </span>
             </div>
             <p class="mt-2 truncate text-xs font-medium">{{ document.name }}</p>
             <p class="mt-0.5 truncate text-[10px] text-muted">
@@ -291,11 +400,20 @@ function formattedDate(updatedAt: string): string {
             :key="document.id"
             type="button"
             class="flex min-h-14 w-full items-center gap-3 border-b border-border px-3 py-2 text-left last:border-b-0 hover:bg-hover sm:min-h-0 sm:px-4 sm:py-3"
+            data-test-id="recent-file-card"
             @click="openRecent(document)"
           >
             <icon-lucide-file-image class="size-4 shrink-0 text-accent" />
             <span class="min-w-0 flex-1">
-              <span class="block truncate text-xs font-medium">{{ document.name }}</span>
+              <span class="flex items-center gap-1.5">
+                <span class="truncate text-xs font-medium">{{ document.name }}</span>
+                <span
+                  v-if="document.kind === 'recovery'"
+                  class="shrink-0 rounded bg-hover px-1.5 py-0.5 text-[10px] font-medium text-muted"
+                >
+                  {{ files.unsavedDocument }}
+                </span>
+              </span>
               <span class="mt-0.5 block truncate text-[10px] text-muted sm:hidden">{{
                 formattedDate(document.updatedAt)
               }}</span>

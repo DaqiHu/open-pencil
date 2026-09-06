@@ -5,7 +5,6 @@ import { BUILTIN_IO_FORMATS, IORegistry } from '@open-pencil/core/io'
 import { setOpenPencilOpenFileHandler } from '@/app/browser-bridge'
 import { resolveBrowserFileURL } from '@/app/document/io/browser'
 import { notificationMessages } from '@/app/i18n/notifications'
-import { rememberRecentFile } from '@/app/recent-files'
 import { toast } from '@/app/shell/ui'
 import { openFileInNewTab } from '@/app/tabs'
 import { isTauri } from '@/app/tauri/env'
@@ -105,7 +104,6 @@ export async function openFileFromPath(path: string) {
   if (!isTauri()) return
   const file = await readTauriDesignFile(path)
   await openFileInNewTab(file, undefined, path)
-  rememberRecentFile(path)
 }
 
 export async function openFileDialog() {

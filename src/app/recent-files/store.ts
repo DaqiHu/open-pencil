@@ -3,6 +3,7 @@ import { computed } from 'vue'
 
 import type { StorageProviderID } from '@/app/integrations/storage'
 
+import { getRecentHandleStore } from './handles'
 import { clearRecentFileThumbnails } from './thumbnails'
 
 const MAX_RECENT_DOCUMENTS = 10
@@ -25,7 +26,26 @@ export interface RecentStorageDocument {
   updatedAt: string
 }
 
-export type RecentDocument = RecentLocalDocument | RecentStorageDocument
+/** A `.fig` opened or saved through the browser File System Access API. */
+export interface RecentBrowserFileDocument {
+  id: string
+  kind: 'file'
+  name: string
+  updatedAt: string
+}
+
+/** An unsaved document snapshot; projected from the recovery store, never persisted here. */
+export interface RecentRecoveryDocument {
+  id: string
+  kind: 'recovery'
+  snapshotId: string
+  name: string
+  updatedAt: string
+}
+
+export type RecentDocument = RecentLocalDocument | RecentStorageDocument | RecentBrowserFileDocument
+
+export type RecentHomeDocument = RecentDocument | RecentRecoveryDocument
 
 export const recentDocuments = useLocalStorage<RecentDocument[]>(RECENT_DOCUMENTS_STORAGE_KEY, [])
 
@@ -39,6 +59,10 @@ function localDocumentId(path: string): string {
 
 function storageDocumentId(providerId: StorageProviderID, documentId: string): string {
   return `storage:${providerId}:${documentId}`
+}
+
+function browserFileDocumentId(name: string): string {
+  return `file:${name}`
 }
 
 function normalizedRecentDocuments(): RecentDocument[] {
@@ -85,8 +109,38 @@ export function rememberRecentStorageDocument(
   })
 }
 
+/**
+ * Records a browser-picked `.fig` and persists its handle so the home page can
+ * reopen it later. The entry is only recorded once the handle is stored.
+ */
+export async function rememberRecentBrowserFile(handle: FileSystemFileHandle): Promise<void> {
+  const id = browserFileDocumentId(handle.name)
+  try {
+    await getRecentHandleStore().save(id, handle)
+  } catch (error) {
+    console.warn('[Recent files] Could not persist the file handle; skipping entry', error)
+    return
+  }
+  remember({
+    id,
+    kind: 'file',
+    name: handle.name,
+    updatedAt: new Date().toISOString()
+  })
+}
+
+export function readRecentBrowserFileHandle(id: string): Promise<FileSystemFileHandle | null> {
+  return getRecentHandleStore().read(id)
+}
+
 export function forgetRecentDocument(id: string): void {
-  recentDocuments.value = normalizedRecentDocuments().filter((document) => document.id !== id)
+  const document = normalizedRecentDocuments().find((recent) => recent.id === id)
+  recentDocuments.value = normalizedRecentDocuments().filter((recent) => recent.id !== id)
+  if (document?.kind === 'file') {
+    void getRecentHandleStore()
+      .remove(id)
+      .catch((error) => console.warn('[Recent files] Failed to remove the file handle', error))
+  }
 }
 
 export function forgetRecentFile(path: string): void {
@@ -96,6 +150,9 @@ export function forgetRecentFile(path: string): void {
 export async function clearRecentFiles(): Promise<void> {
   recentDocuments.value = []
   await clearRecentFileThumbnails()
+  await getRecentHandleStore()
+    .clear()
+    .catch((error) => console.warn('[Recent files] Failed to clear file handles', error))
 }
 
 export function recentLocalFileAt(index: number): string | null {

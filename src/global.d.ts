@@ -13,6 +13,15 @@ declare global {
     accept: Record<string, string[]>
   }
 
+  interface FileSystemHandlePermissionDescriptor {
+    mode?: 'read' | 'readwrite'
+  }
+
+  interface FileSystemHandle {
+    queryPermission?(descriptor?: FileSystemHandlePermissionDescriptor): Promise<PermissionState>
+    requestPermission?(descriptor?: FileSystemHandlePermissionDescriptor): Promise<PermissionState>
+  }
+
   interface FilePickerOptions {
     multiple?: boolean
     types?: FilePickerAcceptType[]

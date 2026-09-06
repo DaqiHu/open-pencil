@@ -78,14 +78,27 @@ function createResilientRecoveryStore(primary: RecoveryStore): RecoveryStore {
     })
   }
 
+  const listeners = new Set<() => void>()
+
+  function notified<T>(operation: Promise<T>): Promise<T> {
+    return operation.then((result) => {
+      for (const listener of listeners) listener()
+      return result
+    })
+  }
+
   return {
     list: () => run((store) => store.list()),
     read: (id: string): Promise<RecoverySnapshot | null> => run((store) => store.read(id)),
     write: (input: RecoverySnapshotInput): Promise<RecoverySnapshotMeta> =>
-      run((store) => store.write(input)),
-    setClosed: setClosedInAll,
-    remove: removeFromAll,
-    clear: clearAll
+      notified(run((store) => store.write(input))),
+    setClosed: (id, closed) => notified(setClosedInAll(id, closed)),
+    remove: (id) => notified(removeFromAll(id)),
+    clear: () => notified(clearAll()),
+    subscribe(listener) {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    }
   }
 }
 

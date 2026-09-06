@@ -28,4 +28,6 @@ export interface RecoveryStore {
   setClosed(id: string, closed: boolean): Promise<void>
   remove(id: string): Promise<void>
   clear(): Promise<void>
+  /** Notifies after a mutation completes; used by surfaces listing snapshots live. */
+  subscribe?(listener: () => void): () => void
 }

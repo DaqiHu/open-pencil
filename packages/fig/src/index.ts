@@ -7,6 +7,7 @@ export {
   type WriteFigArchiveInput
 } from './archive'
 export {
+  extractFigThumbnailFromBytes,
   extractFigThumbnailFromReader,
   type FigRangeReader,
   type FigThumbnailLimits
