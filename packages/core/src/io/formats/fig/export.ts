@@ -99,10 +99,17 @@ async function renderFigThumbnail(
 ): Promise<Uint8Array> {
   if (!pageId) return THUMBNAIL_1X1
   if (ck && renderer) {
-    return (
-      renderThumbnail(ck, renderer, graph, pageId, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT) ??
-      THUMBNAIL_1X1
-    )
+    try {
+      return (
+        renderThumbnail(ck, renderer, graph, pageId, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT) ??
+        THUMBNAIL_1X1
+      )
+    } catch (error) {
+      // A renderer holding disposed Skia objects (e.g. a backgrounded tab) must
+      // not break the export; the thumbnail is decorative.
+      console.warn('[fig export] Thumbnail render failed; embedding placeholder', error)
+      return THUMBNAIL_1X1
+    }
   }
   if (!renderHeadless || IS_BROWSER || IS_TAURI) return THUMBNAIL_1X1
   const { headlessRenderThumbnail } = await import('#core/io/formats/raster')

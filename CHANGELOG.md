@@ -12,6 +12,7 @@
 
 - Create, select, move, duplicate, transfer, and delete canvas and frame guides directly from rulers, with undoable edits, measurements, context-menu actions, and `.fig` round-trip fidelity.
 - Open to a unified home with recent and configured storage documents in grid or list layouts, and open multiple selected design files in separate tabs.
+- List unsaved documents on the home page with live thumbnails and restore them on click, and remember files opened through the browser file picker across sessions.
 - Snap vector points, moved layers, and resized edges to nearby geometry, guides, frame and canvas bounds, and whole-pixel coordinates, with visible alignment guides and persistent snapping preferences.
 - Run Pi through AI SDK HarnessAgent as a configurable desktop provider with saved model profiles, secure credentials, existing MCP design tools, and per-profile thinking and permission settings.
 - Combine components into variant sets through Figma API scripts and automation.

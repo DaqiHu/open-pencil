@@ -147,3 +147,20 @@ export async function extractFigThumbnailFromReader(
   const entry = findThumbnailEntry(central, maxCompressed, maxOutput)
   return entry ? readEntryPayload(reader, entry, maxOutput) : null
 }
+
+/**
+ * Extract the embedded `thumbnail.png` from an in-memory `.fig` archive.
+ * Returns null when the archive embeds only the 1×1 placeholder.
+ */
+export function extractFigThumbnailFromBytes(
+  bytes: Uint8Array,
+  limits: FigThumbnailLimits = {}
+): Promise<Uint8Array | null> {
+  return extractFigThumbnailFromReader(
+    {
+      size: bytes.byteLength,
+      read: (start, endExclusive) => Promise.resolve(bytes.subarray(start, endExclusive))
+    },
+    limits
+  )
+}

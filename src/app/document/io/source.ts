@@ -13,6 +13,7 @@ import type { DocumentSourceAccess } from '@/app/document/io/types'
 import { createDocumentRecovery } from '@/app/document/recovery'
 import { recoveryEnabled } from '@/app/document/recovery/preferences'
 import type { StorageDocumentBinding } from '@/app/integrations/storage/types'
+import { rememberRecentBrowserFile, rememberRecentFile } from '@/app/recent-files'
 
 type DocumentSourceState = EditorState & {
   documentName: string
@@ -53,14 +54,11 @@ export function createDocumentSourceActions({
     return exportFigFile(editor.graph, renderer?.ck, renderer ?? undefined, state.currentPageId)
   }
 
-  function buildRecoveryFigFile() {
-    return exportFigFile(editor.graph, undefined, undefined, state.currentPageId)
-  }
-
   const recovery = createDocumentRecovery({
     state,
     isEnabled: () => recoveryEnabled.value,
-    buildFigFile: buildRecoveryFigFile,
+    // Renderer-backed so snapshots embed a real thumbnail the home page can preview.
+    buildFigFile,
     hasWritableSource: () => !!getFileHandle() || !!getFilePath() || !!getStorageBinding()
   })
 
@@ -110,6 +108,13 @@ export function createDocumentSourceActions({
     setSourceIdentity({ handle: handle ?? null, path: path ?? null })
     setSavedVersion(state.sceneVersion)
     void recovery.markProtectedVersion(state.sceneVersion)
+    if (handle) {
+      void rememberRecentBrowserFile(handle).catch((error) =>
+        console.warn('[Recent files] Failed to record the opened file', error)
+      )
+    } else if (path) {
+      rememberRecentFile(path)
+    }
     if (isFig && (handle || path)) {
       void startWatchingFile()
     }

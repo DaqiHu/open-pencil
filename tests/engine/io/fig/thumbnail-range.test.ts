@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 
 import { zipSync } from 'fflate'
 
-import { extractFigThumbnailFromReader } from '@open-pencil/fig'
+import { extractFigThumbnailFromBytes, extractFigThumbnailFromReader } from '@open-pencil/fig'
 
 function memoryReader(bytes: Uint8Array, ranges: Array<[number, number]>) {
   return {
@@ -84,5 +84,38 @@ describe('fig ranged thumbnail extraction', () => {
       maxOutputBytes: 32
     })
     expect(thumbnail).toBeNull()
+  })
+})
+
+describe('fig in-memory thumbnail extraction', () => {
+  test('extracts the same thumbnail as the ranged reader', async () => {
+    const bytes = new Uint8Array(readFileSync('tests/fixtures/gold-preview.fig'))
+
+    const fromBytes = await extractFigThumbnailFromBytes(bytes)
+    const fromReader = await extractFigThumbnailFromReader(memoryReader(bytes, []))
+
+    expect(fromBytes?.subarray(0, 8)).toEqual(
+      new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    )
+    expect(fromBytes).toEqual(fromReader)
+  })
+
+  test('rejects archives without a usable thumbnail', async () => {
+    const malformed = zipSync({
+      'canvas.fig': new Uint8Array([1]),
+      'thumbnail.png': new TextEncoder().encode('not a png')
+    })
+    expect(await extractFigThumbnailFromBytes(malformed)).toBeNull()
+
+    const placeholder = new Uint8Array(24)
+    placeholder.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    const dimensions = new DataView(placeholder.buffer)
+    dimensions.setUint32(16, 1)
+    dimensions.setUint32(20, 1)
+    expect(
+      await extractFigThumbnailFromBytes(zipSync({ 'thumbnail.png': placeholder }, { level: 0 }))
+    ).toBeNull()
+
+    expect(await extractFigThumbnailFromBytes(new Uint8Array(8))).toBeNull()
   })
 })
