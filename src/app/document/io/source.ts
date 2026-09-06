@@ -161,6 +161,7 @@ export function createDocumentSourceActions({
     adoptRecoverySnapshot: (id: string, version: number) =>
       recovery.adoptRecoverySnapshot(id, version),
     persistRecoveryNow: () => recovery.persistNow(),
+    markRecoveryClosed: () => recovery.markClosed(),
     discardRecovery: () => recovery.discardRecovery()
   }
 }

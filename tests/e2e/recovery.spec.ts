@@ -17,9 +17,9 @@ test('keeps an unsaved document recoverable after its tab closes', async ({ brow
   })
 
   await page.keyboard.press('ControlOrMeta+t')
-  await expect(page.getByRole('button', { name: 'New tab' })).toBeVisible()
+  await expect(page.getByTestId('tabbar-tab')).toHaveCount(2)
   await page.getByTestId('tabbar-tab').first().getByTestId('tabbar-close').click()
-  await expect(page.getByRole('button', { name: 'New tab' })).toBeHidden()
+  await expect(page.getByTestId('tabbar-tab')).toHaveCount(1)
   await expect
     .poll(() =>
       page.evaluate(async () => {
@@ -42,6 +42,34 @@ test('keeps an unsaved document recoverable after its tab closes', async ({ brow
   await expect(page.getByRole('alertdialog', { name: 'Recover unsaved work' })).toBeVisible()
   await page.getByRole('button', { name: 'Restore' }).click()
   await expect(page.getByText('Retained recovery rectangle')).toBeVisible()
+
+  await context.close()
+})
+
+test('restores an unsaved document automatically when its tab was still open at reload', async ({
+  browser,
+  baseURL
+}) => {
+  const context = await browser.newContext({ baseURL })
+  const page = await context.newPage()
+  await page.goto('/')
+  const canvas = new CanvasHelper(page)
+  await canvas.waitForInit()
+
+  await page.evaluate(async () => {
+    const store = window.openPencil?.getStore?.()
+    if (!store) throw new Error('OpenPencil store not initialized')
+    const id = store.createShape('RECTANGLE', 120, 120, 240, 140)
+    store.updateNode(id, { name: 'Auto-restored rectangle' })
+    await store.persistRecoveryNow()
+  })
+
+  await page.reload()
+  const reloadedCanvas = new CanvasHelper(page)
+  await reloadedCanvas.waitForInit()
+
+  await expect(page.getByRole('alertdialog', { name: 'Recover unsaved work' })).toBeHidden()
+  await expect(page.getByText('Auto-restored rectangle')).toBeVisible()
 
   await context.close()
 })

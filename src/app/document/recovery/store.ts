@@ -37,7 +37,7 @@ function createResilientRecoveryStore(primary: RecoveryStore): RecoveryStore {
       const snapshots = await primary.list()
       for (const metadata of snapshots) {
         const snapshot = await primary.read(metadata.id)
-        if (snapshot) await memory.write(snapshot)
+        if (snapshot) await memory.write({ ...snapshot, closed: snapshot.closed ?? false })
       }
     } catch (migrationError) {
       console.warn('[Recovery] Failed to migrate IndexedDB snapshots to memory:', migrationError)
@@ -64,6 +64,13 @@ function createResilientRecoveryStore(primary: RecoveryStore): RecoveryStore {
     })
   }
 
+  function setClosedInAll(id: string, closed: boolean): Promise<void> {
+    return serialized(async () => {
+      await primary.setClosed(id, closed)
+      if (current !== primary) await current.setClosed(id, closed)
+    })
+  }
+
   function clearAll(): Promise<void> {
     return serialized(async () => {
       await primary.clear()
@@ -76,6 +83,7 @@ function createResilientRecoveryStore(primary: RecoveryStore): RecoveryStore {
     read: (id: string): Promise<RecoverySnapshot | null> => run((store) => store.read(id)),
     write: (input: RecoverySnapshotInput): Promise<RecoverySnapshotMeta> =>
       run((store) => store.write(input)),
+    setClosed: setClosedInAll,
     remove: removeFromAll,
     clear: clearAll
   }

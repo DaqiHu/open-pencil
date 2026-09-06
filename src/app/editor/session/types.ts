@@ -16,7 +16,7 @@ export function createInitialAppEditorState(pageId: string): AppEditorState {
     actionToast: null,
     mobileDrawerSnap: 'closed',
     clipboardHTML: '',
-    autosaveEnabled: false,
+    autosaveEnabled: true,
     cursorCanvasX: null,
     cursorCanvasY: null,
     nodeEditState: null,

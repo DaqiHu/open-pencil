@@ -85,6 +85,7 @@ export function createEditorStoreModules(
     getRecoveryId: documentIO.getRecoveryId,
     adoptRecoverySnapshot: documentIO.adoptRecoverySnapshot,
     persistRecoveryNow: documentIO.persistRecoveryNow,
+    markRecoveryClosed: documentIO.markRecoveryClosed,
     discardRecovery: documentIO.discardRecovery,
     setDocumentSource: documentIO.setDocumentSource,
     setStorageDocumentSource: documentIO.setStorageDocumentSource,

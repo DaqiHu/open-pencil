@@ -62,7 +62,8 @@ export function createIdbRecoveryStore(): RecoveryStore {
         updatedAt: new Date().toISOString(),
         sceneVersion: input.sceneVersion,
         byteLength: input.figBytes.byteLength,
-        formatVersion: 1
+        formatVersion: 1,
+        closed: input.closed
       }
       await Promise.all([
         transaction.objectStore('meta').put(metadata),
@@ -70,6 +71,13 @@ export function createIdbRecoveryStore(): RecoveryStore {
         transaction.done
       ])
       return metadata
+    },
+
+    async setClosed(id: string, closed: boolean) {
+      const db = await database
+      const metadata = await db.get('meta', id)
+      if (!metadata) return
+      await db.put('meta', { ...metadata, closed })
     },
 
     async remove(id: string) {

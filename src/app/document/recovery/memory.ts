@@ -25,13 +25,18 @@ export function createMemoryRecoveryStore(): RecoveryStore {
         updatedAt: new Date().toISOString(),
         sceneVersion: input.sceneVersion,
         byteLength: input.figBytes.byteLength,
-        formatVersion: 1
+        formatVersion: 1,
+        closed: input.closed
       }
       snapshots.set(input.id, {
         ...metadata,
         figBytes: new Uint8Array(input.figBytes)
       })
       return structuredClone(metadata)
+    },
+    async setClosed(id: string, closed: boolean) {
+      const snapshot = snapshots.get(id)
+      if (snapshot) snapshots.set(id, { ...snapshot, closed })
     },
     async remove(id: string) {
       snapshots.delete(id)
