@@ -38,6 +38,7 @@
 - Localize file, clipboard, collaboration, chat, vectorization, storage, recovery, and component-library notifications in every supported language.
 - Move MCP connections into their own Settings destination instead of presenting them as part of model configuration.
 - Pan horizontally with Shift+wheel while preserving native horizontal trackpad movement.
+- Export images and archives on the web directly to the browser's download folder instead of prompting for a save location each time.
 - Turn on autosave by default and automatically reopen unsaved documents that were still open when the app closed; documents from deliberately closed tabs remain available in the recovery dialog.
 
 ### Fixed
