@@ -77,7 +77,7 @@ export function connectAutomation(
 
     socket.onclose = (event) => {
       if (ws === socket) ws = null
-      if (intentionalDisconnect || event.code === 1000) return
+      if (intentionalDisconnect) return
       console.warn('[Automation] WebSocket closed:', `code=${event.code} reason=${event.reason}`)
       scheduleReconnect()
     }
