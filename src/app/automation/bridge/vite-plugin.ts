@@ -153,7 +153,7 @@ export function automationPlugin(
   let child: ReturnType<typeof spawn> | null = null
   let lifecycle = Promise.resolve()
   let configuration: DevMCPConfiguration = {
-    authenticationEnabled: true,
+    authenticationEnabled: false,
     rootDirectory: '',
     disabledTools: []
   }

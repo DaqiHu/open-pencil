@@ -11,7 +11,10 @@ export const configurableMCPTools = ref<ToolDescriptor[]>([])
 
 export const disabledMCPTools = useLocalStorage<string[]>(DISABLED_TOOLS_STORAGE_KEY, [])
 export const mcpRootDirectory = useLocalStorage(ROOT_DIRECTORY_STORAGE_KEY, '')
-export const mcpAuthenticationEnabled = useLocalStorage(AUTHENTICATION_ENABLED_STORAGE_KEY, true)
+export const mcpAuthenticationEnabled = useLocalStorage(AUTHENTICATION_ENABLED_STORAGE_KEY, false)
+if (import.meta.env.DEV) {
+  mcpAuthenticationEnabled.value = false
+}
 
 export function setMCPToolDescriptors(tools: ToolDescriptor[]): void {
   configurableMCPTools.value = tools.filter((tool) => tool.availability !== 'eval')

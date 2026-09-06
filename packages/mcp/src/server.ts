@@ -115,10 +115,23 @@ function createHonoApp(options: {
   const app = new Hono()
 
   if (corsOrigin) {
+    const allowed = corsOrigin.split(',').map((s) => s.trim())
     app.use(
       '*',
       cors({
-        origin: corsOrigin,
+        origin: (origin) => {
+          if (corsOrigin === '*' || allowed.includes(origin)) return origin
+          try {
+            const url = new URL(origin)
+            if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
+              for (const a of allowed) {
+                const aUrl = new URL(a)
+                if (aUrl.port === url.port) return origin
+              }
+            }
+          } catch {}
+          return undefined
+        },
         allowMethods: MCP_CORS_METHODS,
         allowHeaders: MCP_CORS_HEADERS,
         exposeHeaders: MCP_EXPOSED_HEADERS

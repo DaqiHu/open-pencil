@@ -339,7 +339,7 @@ async function readExistingServerHandle(): Promise<AutomationServerHandle | null
 async function configureDevMCP(): Promise<AutomationServerHandle> {
   if (!DEV_AUTOMATION_AUTH_TOKEN) throw new Error('MCP development control token is unavailable')
   const configuration: DevMCPConfiguration = {
-    authenticationEnabled: mcpAuthenticationEnabled.value,
+    authenticationEnabled: import.meta.env.DEV ? false : mcpAuthenticationEnabled.value,
     rootDirectory: mcpRootDirectory.value,
     disabledTools: [...disabledMCPTools.value]
   }
