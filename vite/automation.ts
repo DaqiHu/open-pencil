@@ -13,7 +13,7 @@ export function localAutomationToken(command: string): string | null {
 }
 
 export function automationCORSOrigin(host: string | undefined): string {
-  const port = process.env.VITE_PORT || '1420'
+  const port = process.env.VITE_PORT || '14200'
   return host
     ? `http://${host}:${port},http://localhost:${port},http://127.0.0.1:${port}`
     : `http://localhost:${port},http://127.0.0.1:${port}`
