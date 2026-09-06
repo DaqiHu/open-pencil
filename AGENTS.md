@@ -1,5 +1,7 @@
 # OpenPencil
 
+This is DaqiHu/open-pencil fork. Update the fork (pull from upstream) before you make any changes.
+
 Vue 3 + CanvasKit (Skia WASM) + Yoga WASM design editor. Tauri v2 desktop, also runs in browser.
 
 **Roadmap:** `packages/docs/development/roadmap.md` tracks product direction, Figma compatibility gaps, and raw metadata coverage. This file keeps agent-facing architecture, conventions, and commands; detailed public docs live under `packages/docs/**`.
