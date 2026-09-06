@@ -170,15 +170,6 @@ test('format selector works with multiple export rows', async () => {
   canvas.assertNoErrors()
 })
 
-// The app prefers the File System Access save dialog when available, which never
-// resolves in a headless browser. Unset it so the export falls back to the
-// anchor-download path, which Playwright can capture as a `download` event.
-async function forceBlobDownload() {
-  await page.evaluate(() => {
-    window.showSaveFilePicker = undefined
-  })
-}
-
 // `createRectangles` makes fill-less rectangles, which have no visual bounds and
 // export to nothing. Use createShape so the rectangle has a real fill and is
 // actually exportable, then attach the export settings under test.
@@ -202,7 +193,6 @@ test('multiple export formats download as a single zip', async () => {
     { scale: 1, format: 'png' },
     { scale: 1, format: 'svg' }
   ])
-  await forceBlobDownload()
 
   const [download] = await Promise.all([page.waitForEvent('download'), exportButton().click()])
   expect(download.suggestedFilename()).toBe('Export rect 1.zip')
@@ -211,7 +201,6 @@ test('multiple export formats download as a single zip', async () => {
 
 test('a single export format downloads the file directly', async () => {
   await createExportableRect([{ scale: 1, format: 'png' }])
-  await forceBlobDownload()
 
   const [download] = await Promise.all([page.waitForEvent('download'), exportButton().click()])
   expect(download.suggestedFilename()).toBe('Export rect 1@1x.png')
