@@ -5,7 +5,7 @@
   "identifier": "net.dannote.open-pencil",
   "build": {
     "beforeDevCommand": "bun run generate:tauri-menu && bun run dev",
-    "devUrl": "http://localhost:1420",
+    "devUrl": "http://localhost:14200",
     "beforeBuildCommand": "bun run generate:tauri-menu && bun run build",
     "frontendDist": "../dist"
   },
