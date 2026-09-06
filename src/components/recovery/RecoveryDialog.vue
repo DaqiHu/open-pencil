@@ -5,7 +5,11 @@ import { useRoute } from 'vue-router'
 import { useI18n } from '@open-pencil/vue'
 import { recoveryEnabled } from '@/app/document/recovery/preferences'
 import { useNotificationMessages } from '@/app/i18n/notifications'
-import { discardRecoverySnapshot, listRecoverySnapshots, restoreRecoverySnapshot } from '@/app/tabs'
+import {
+  discardRecoverySnapshot,
+  restoreOpenRecoverySnapshots,
+  restoreRecoverySnapshot
+} from '@/app/tabs'
 import type { RecoverySnapshotMeta } from '@/app/document/recovery'
 import { formatStorageBytes } from '@/app/storage/format-bytes'
 import { toast } from '@/app/shell/ui'
@@ -56,10 +60,10 @@ async function discard(snapshot: RecoverySnapshotMeta): Promise<void> {
 onMounted(async () => {
   if (route.path !== '/' || !recoveryEnabled.value) return
   try {
-    snapshots.value = await listRecoverySnapshots()
+    snapshots.value = await restoreOpenRecoverySnapshots()
     open.value = snapshots.value.length > 0
   } catch (error) {
-    console.warn('[Recovery] Failed to list snapshots:', error)
+    console.warn('[Recovery] Failed to restore open snapshots:', error)
   }
 })
 </script>

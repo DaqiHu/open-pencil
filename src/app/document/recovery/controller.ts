@@ -22,6 +22,7 @@ export interface DocumentRecoveryController {
   getRecoveryId(): string
   adoptRecoverySnapshot(id: string, sceneVersion: number): Promise<void>
   persistNow(): Promise<void>
+  markClosed(): Promise<void>
   markProtectedVersion(version: number): Promise<void>
   discardRecovery(): Promise<void>
   disposeRecovery(): void
@@ -54,7 +55,8 @@ export function createDocumentRecovery({
       id,
       documentName: state.documentName,
       sceneVersion: version,
-      figBytes: bytes
+      figBytes: bytes,
+      closed: false
     })
     persistedVersion = version
     if (generation !== lifecycleGeneration) return
@@ -126,8 +128,15 @@ export function createDocumentRecovery({
       requestedVersion = sceneVersion
       disposed = false
       if (previousId !== nextId) await store.remove(previousId)
+      await store.setClosed(nextId, false)
     },
     persistNow,
+    async markClosed() {
+      stopVersionWatch()
+      stopEnabledWatch()
+      await persistNow()
+      await store.setClosed(id, true)
+    },
     async markProtectedVersion(version) {
       await invalidateActiveWrite()
       protectedVersion = version

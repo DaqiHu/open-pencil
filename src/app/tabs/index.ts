@@ -158,7 +158,7 @@ export async function closeTab(tabId: string): Promise<void> {
   coverThumbnailListeners.get(closingTab.store)?.()
   coverThumbnailListeners.delete(closingTab.store)
   closingTab.store.preparationController.dispose()
-  await closingTab.store.persistRecoveryNow()
+  await closingTab.store.markRecoveryClosed()
   closingTab.store.dispose()
   tabsRef.value = tabsRef.value.filter((t) => t.id !== tabId)
 
@@ -506,7 +506,17 @@ export async function restoreRecoverySnapshot(id: string): Promise<void> {
   const snapshot = await getRecoveryStore().read(id)
   if (!snapshot) throw new Error('Recovery snapshot is no longer available')
 
-  const { store } = reusableTabStore()
+  // Restores must never replace an existing document tab: reusing a restored
+  // 'Untitled' tab for the next snapshot would clobber its content and delete
+  // the previously adopted snapshot. Only an active home tab is reused.
+  const current = activeTab.value
+  let store: EditorStore
+  if (current?.kind === 'home') {
+    leaveHome(current.id)
+    store = current.store
+  } else {
+    store = createTab().store
+  }
   const load = store.preparationController.begin({
     kind: 'recovery-restore',
     subject: snapshot.documentName
@@ -543,6 +553,28 @@ export async function prepareForReload(): Promise<void> {
   await Promise.all(tabsRef.value.map((tab) => tab.store.persistRecoveryNow()))
 }
 
+/**
+ * Reopens snapshots whose tabs were still open when the last session ended.
+ * Returns the remaining snapshots (deliberately closed or failed to restore)
+ * so the recovery dialog can offer them for manual restore.
+ */
+export async function restoreOpenRecoverySnapshots(): Promise<RecoverySnapshotMeta[]> {
+  const remaining: RecoverySnapshotMeta[] = []
+  for (const snapshot of await listRecoverySnapshots()) {
+    if (snapshot.closed) {
+      remaining.push(snapshot)
+      continue
+    }
+    try {
+      await restoreRecoverySnapshot(snapshot.id)
+    } catch (error) {
+      console.warn('[Recovery] Automatic restore failed:', error)
+      remaining.push(snapshot)
+    }
+  }
+  return remaining
+}
+
 export function tabCount(): number {
   return tabsRef.value.length
 }
@@ -565,6 +597,7 @@ export function useTabsStore() {
     openStorageDocumentInNewTab,
     listRecoverySnapshots,
     restoreRecoverySnapshot,
+    restoreOpenRecoverySnapshots,
     discardRecoverySnapshot,
     prepareForReload,
     getActiveStore,

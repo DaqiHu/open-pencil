@@ -280,4 +280,55 @@ describe('document recovery controller', () => {
     expect((await store.read('recovery-1'))?.sceneVersion).toBe(2)
     recovery.disposeRecovery()
   })
+
+  test('keeps in-session snapshots open for automatic restore', async () => {
+    const { state, store, recovery } = setup()
+    state.sceneVersion = 1
+    await recovery.persistNow()
+    expect((await store.read('recovery-1'))?.closed).toBe(false)
+    recovery.disposeRecovery()
+  })
+
+  test('markClosed persists the latest version and flags the snapshot closed', async () => {
+    const { state, store, recovery } = setup()
+    state.sceneVersion = 1
+    await recovery.persistNow()
+    state.sceneVersion = 2
+
+    await recovery.markClosed()
+
+    const snapshot = await store.read('recovery-1')
+    expect(snapshot?.sceneVersion).toBe(2)
+    expect(snapshot?.closed).toBe(true)
+    recovery.disposeRecovery()
+  })
+
+  test('markClosed flags an already-persisted snapshot without rebuilding', async () => {
+    let builds = 0
+    const { state, store, recovery } = setup(async () => {
+      builds++
+      return new Uint8Array([builds])
+    })
+    state.sceneVersion = 1
+    await recovery.persistNow()
+    expect(builds).toBe(1)
+
+    await recovery.markClosed()
+
+    expect(builds).toBe(1)
+    expect((await store.read('recovery-1'))?.closed).toBe(true)
+    recovery.disposeRecovery()
+  })
+
+  test('adopting a closed snapshot reopens it for automatic restore', async () => {
+    const { state, store, recovery } = setup()
+    state.sceneVersion = 1
+    await recovery.markClosed()
+    expect((await store.read('recovery-1'))?.closed).toBe(true)
+
+    await recovery.adoptRecoverySnapshot('recovery-1', 1)
+
+    expect((await store.read('recovery-1'))?.closed).toBe(false)
+    recovery.disposeRecovery()
+  })
 })
