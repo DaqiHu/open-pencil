@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto'
 import type { Server as HttpServer } from 'node:http'
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
@@ -302,10 +301,11 @@ function buildServerContext(options: ServerOptions) {
     disabledTools: [...new Set(options.disabledTools)]
   }
   const mcpRoot = options.mcpRoot ?? null
-  // Auto-generated so all transports require auth by default. Override via OPENPENCIL_MCP_AUTH_TOKEN or authToken option.
-  // Pass authToken: null explicitly to disable auth entirely.
-  const authToken =
-    options.authToken === undefined ? randomBytes(16).toString('hex') : options.authToken
+  // Auth is disabled by default so a bare CLI server (and the desktop app,
+  // which already defaults to auth off) connects without a token. Set a real
+  // token via OPENPENCIL_MCP_AUTH_TOKEN or the authToken option to enable it;
+  // pass authToken: null explicitly to disable auth entirely.
+  const authToken = options.authToken === undefined ? null : options.authToken
   const corsOrigin = options.corsOrigin ?? null
   const withTcp = options.withTcp ?? false
 

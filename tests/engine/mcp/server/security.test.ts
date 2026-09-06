@@ -73,7 +73,7 @@ describe('MCP server CORS', () => {
 // ---------------------------------------------------------------------------
 
 describe('MCP server auto-generated auth token', () => {
-  test('requires auth when authToken is omitted (auto-generated)', async () => {
+  test('skips auth when authToken is omitted (default auth disabled)', async () => {
     if (isUnix) await mkdir(SOCKET_DIR, { recursive: true })
     const handle = await startServer({
       httpPort: 0,
@@ -90,31 +90,14 @@ describe('MCP server auto-generated auth token', () => {
     }
 
     try {
-      // Request without auth should be rejected
-      const response = await fetch(`http://127.0.0.1:${httpPort}/mcp`, {
-        method: 'POST',
-        headers: {
-          accept: 'application/json, text/event-stream',
-          'content-type': 'application/json'
-        },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          method: 'initialize',
-          params: {
-            protocolVersion: '2025-06-18',
-            capabilities: {},
-            clientInfo: { name: 'no-auth-test', version: '0.0.0' }
-          }
-        })
-      })
-      expect(response.status).toBe(401)
+      // Access without auth should succeed
+      const response = await fetch(`http://127.0.0.1:${httpPort}/health`)
+      expect(response.status).toBe(200)
 
-      // /health should show authRequired: true
-      const healthResp = await fetch(`http://127.0.0.1:${httpPort}/health`)
-      const health = (await healthResp.json()) as HealthResponse
-      expect(health.authRequired).toBe(true)
-      expect(health.tools).toBeUndefined()
+      // /health should show authRequired: false and expose tools
+      const health = (await response.json()) as HealthResponse
+      expect(health.authRequired).toBe(false)
+      expect(health.tools).toBeDefined()
     } finally {
       await handle.close()
     }
