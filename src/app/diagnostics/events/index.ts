@@ -1,6 +1,7 @@
 export { recordChatCompleted, recordChatFailed, recordModelStepCompleted } from './ai'
 export { recordDocumentFailure } from './document'
 export { preparationDurationBucket, recordPreparationOutcome } from './preparation'
+export { recordRecoveryOperation } from './recovery'
 export { recordStorageFailure } from './storage'
 export { recordACPTransportFailure, recordMCPConnectionFailure } from './transport'
 export { storageOperationForJob } from './storage-operation'

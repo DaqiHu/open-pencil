@@ -7,6 +7,7 @@ export {
   recordModelStepCompleted,
   preparationDurationBucket,
   recordPreparationOutcome,
+  recordRecoveryOperation,
   recordStorageFailure,
   storageOperationForJob
 } from './events'

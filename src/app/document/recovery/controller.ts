@@ -3,6 +3,7 @@ import { watch, type WatchHandle } from 'vue'
 
 import type { EditorState } from '@open-pencil/core/editor'
 
+import { recordRecoveryOperation } from '@/app/diagnostics'
 import { getRecoveryStore } from '@/app/document/recovery/store'
 import type { RecoveryStore } from '@/app/document/recovery/types'
 import { createCanvasId } from '@/app/storage/id'
@@ -24,6 +25,7 @@ export interface DocumentRecoveryController {
   persistNow(): Promise<void>
   markClosed(): Promise<void>
   markProtectedVersion(version: number): Promise<void>
+  resetForSource(): Promise<void>
   discardRecovery(): Promise<void>
   disposeRecovery(): void
 }
@@ -37,9 +39,11 @@ export function createDocumentRecovery({
   recoveryId = createCanvasId()
 }: DocumentRecoveryOptions): DocumentRecoveryController {
   let id = recoveryId
-  let protectedVersion = state.sceneVersion
-  let persistedVersion: number | null = null
-  let requestedVersion = protectedVersion
+  // null means nothing is protected, so the next persistNow writes a snapshot even
+  // without further edits — used right after a browser file becomes the source,
+  // where the snapshot is the only restart persistence the tab has.
+  let protectedVersion: number | null = state.sceneVersion
+  let requestedVersion: number = state.sceneVersion
   let lifecycleGeneration = 0
   let writing: Promise<void> | null = null
   let cleanup: Promise<void> = Promise.resolve()
@@ -58,9 +62,14 @@ export function createDocumentRecovery({
       figBytes: bytes,
       closed: false
     })
-    persistedVersion = version
     if (generation !== lifecycleGeneration) return
     protectedVersion = version
+    recordRecoveryOperation({
+      operation: 'persist',
+      outcome: 'ok',
+      documentName: state.documentName,
+      detail: `v${version}`
+    })
     if (requestedVersion !== version) await runWrites(generation)
   }
 
@@ -81,7 +90,15 @@ export function createDocumentRecovery({
   const stopVersionWatch: WatchHandle = watchDebounced(
     () => state.sceneVersion,
     () => {
-      void persistNow().catch((error) => console.warn('[Recovery] Snapshot failed:', error))
+      void persistNow().catch((error) => {
+        console.warn('[Recovery] Snapshot failed:', error)
+        recordRecoveryOperation({
+          operation: 'persist',
+          outcome: 'failed',
+          documentName: state.documentName,
+          errorName: error instanceof Error ? error.name : null
+        })
+      })
     },
     { debounce: 3000, maxWait: 10000 }
   )
@@ -95,7 +112,6 @@ export function createDocumentRecovery({
         return
       }
       lifecycleGeneration++
-      const cleanupGeneration = lifecycleGeneration
       const snapshotId = id
       requestedVersion = state.sceneVersion
       protectedVersion = state.sceneVersion
@@ -104,10 +120,18 @@ export function createDocumentRecovery({
         .then(async () => {
           await activeWrite
           await store.remove(snapshotId)
-          if (cleanupGeneration === lifecycleGeneration) persistedVersion = null
           return undefined
         })
-        .catch((error) => console.warn('[Recovery] Failed to disable recovery:', error))
+        .catch((error) => {
+          console.warn('[Recovery] Failed to disable recovery:', error)
+          recordRecoveryOperation({
+            operation: 'persist',
+            outcome: 'failed',
+            documentName: state.documentName,
+            detail: 'disable-cleanup',
+            errorName: error instanceof Error ? error.name : null
+          })
+        })
     },
     { flush: 'sync' }
   )
@@ -124,7 +148,6 @@ export function createDocumentRecovery({
       await invalidateActiveWrite()
       id = nextId
       protectedVersion = sceneVersion
-      persistedVersion = sceneVersion
       requestedVersion = sceneVersion
       disposed = false
       if (previousId !== nextId) await store.remove(previousId)
@@ -141,15 +164,46 @@ export function createDocumentRecovery({
       await invalidateActiveWrite()
       protectedVersion = version
       requestedVersion = state.sceneVersion
-      if (persistedVersion == null || persistedVersion <= version) {
-        await store.remove(id)
-        persistedVersion = null
+      // Sources that only exist in this browser session (file handles) keep their
+      // snapshot: tab restore is the only way their content survives a restart.
+      if (!hasWritableSource()) return
+      await store.remove(id)
+    },
+    async resetForSource() {
+      await invalidateActiveWrite()
+      // The stored snapshot belonged to the previous document in this tab and
+      // version numbers do not compare across documents, so drop it outright —
+      // keeping it would resurrect the old document as a ghost tab on restart.
+      await store.remove(id)
+      const suppressed = hasWritableSource()
+      protectedVersion = suppressed ? state.sceneVersion : null
+      requestedVersion = state.sceneVersion
+      recordRecoveryOperation({
+        operation: 'reset-source',
+        outcome: 'ok',
+        documentName: state.documentName,
+        suppressed
+      })
+      if (suppressed) return
+      // Unsuppressing alone schedules nothing: the version watcher only fires on
+      // future edits, so a document that is opened and left untouched (the exact
+      // "open a .fig, close the browser" case) would never be snapshotted.
+      try {
+        await persistNow()
+      } catch (error) {
+        recordRecoveryOperation({
+          operation: 'persist',
+          outcome: 'failed',
+          documentName: state.documentName,
+          detail: 'reset-source',
+          errorName: error instanceof Error ? error.name : null
+        })
+        throw error
       }
     },
     async discardRecovery() {
       await invalidateActiveWrite()
       protectedVersion = state.sceneVersion
-      persistedVersion = null
       requestedVersion = state.sceneVersion
       await store.remove(id)
     },

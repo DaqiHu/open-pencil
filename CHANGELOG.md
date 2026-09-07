@@ -43,6 +43,8 @@
 
 ### Fixed
 
+- Keep browser tab restore working for files opened through the file picker: snapshot them as soon as they open, close tabs without getting stuck on recovery bookkeeping, and stop restoring a duplicate Untitled tab next to the restored document.
+- Fix exports and saves hanging for documents imported from `.fig` files by no longer dropping original-archive replies when the population worker shares the session port, and by falling back to a full re-encode when the archive worker is gone.
 - Resolve `$name` references in imported `.pen` fills, stroke fills, font families, dimensions, and spacing without requiring a `--` prefix. (#563)
 - Prevent the stock photo tool from replacing text, lines, structural layers, or containers with content while supporting closed shape geometry.
 - Restore browser-persisted local font access at startup so installed document fonts resolve after a reload without clicking Retry fonts, and heal substituted fonts automatically when access is granted mid-session.

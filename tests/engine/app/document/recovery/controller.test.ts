@@ -195,30 +195,36 @@ describe('document recovery controller', () => {
     recovery.disposeRecovery()
   })
 
-  test('successful save removes recovery data', async () => {
-    const { state, store, recovery } = setup()
+  test('successful save to a writable source removes recovery data', async () => {
+    const { state, store, recovery, setWritable } = setup()
+    setWritable(true)
     state.sceneVersion = 1
+    // Writes are suppressed for sourced documents, so seed the snapshot first.
+    setWritable(false)
     await recovery.persistNow()
     expect(await store.list()).toHaveLength(1)
 
+    setWritable(true)
     await recovery.markProtectedVersion(1)
     expect(await store.list()).toEqual([])
     recovery.disposeRecovery()
   })
 
-  test('save waits for an active write before deleting its snapshot', async () => {
+  test('save with a writable source waits for an active write before deleting its snapshot', async () => {
+    let writable = false
     const deferred = deferredWriteStore()
     const state = reactive({ ...createDefaultEditorState('page-1'), documentName: 'Draft' })
     const recovery = createDocumentRecovery({
       state,
       store: deferred.store,
       recoveryId: 'recovery-1',
-      hasWritableSource: () => false,
+      hasWritableSource: () => writable,
       buildFigFile: () => new Uint8Array([1])
     })
     state.sceneVersion = 1
     const write = recovery.persistNow()
     await Promise.resolve()
+    writable = true
     const cleanup = recovery.markProtectedVersion(1)
     deferred.release()
     await Promise.all([write, cleanup])
@@ -270,7 +276,9 @@ describe('document recovery controller', () => {
     recovery.disposeRecovery()
   })
 
-  test('preserves a snapshot newer than the saved version', async () => {
+  test('keeps the snapshot when a document without a writable source is saved', async () => {
+    // Browser file handles cannot be reopened after a restart, so the snapshot
+    // stays as the tab's only persistence even though the save succeeded.
     const { state, store, recovery } = setup()
     state.sceneVersion = 2
     await recovery.persistNow()
@@ -278,6 +286,50 @@ describe('document recovery controller', () => {
     await recovery.markProtectedVersion(1)
 
     expect((await store.read('recovery-1'))?.sceneVersion).toBe(2)
+    recovery.disposeRecovery()
+  })
+
+  test('removes even a newer snapshot when a writable source takes over', async () => {
+    // Version numbers do not compare across documents: after the tab's document
+    // is replaced the counter restarts lower, and guarding on it would leave the
+    // old document's snapshot behind to resurrect as a ghost tab on restart.
+    const { state, store, recovery, setWritable } = setup()
+    state.sceneVersion = 2
+    await recovery.persistNow()
+
+    setWritable(true)
+    await recovery.markProtectedVersion(1)
+
+    expect(await store.list()).toEqual([])
+    recovery.disposeRecovery()
+  })
+
+  test('resetForSource drops the previous snapshot and suppresses writes for writable sources', async () => {
+    const { state, store, recovery, setWritable } = setup()
+    state.sceneVersion = 1
+    await recovery.persistNow()
+    expect(await store.list()).toHaveLength(1)
+
+    setWritable(true)
+    await recovery.resetForSource()
+    expect(await store.list()).toEqual([])
+
+    state.sceneVersion = 2
+    await recovery.persistNow()
+    expect(await store.list()).toEqual([])
+    recovery.disposeRecovery()
+  })
+
+  test('resetForSource snapshots a browser-sourced document without waiting for edits', async () => {
+    const { state, store, recovery } = setup()
+    state.sceneVersion = 1
+    await recovery.persistNow()
+    expect(await store.list()).toHaveLength(1)
+
+    // No further edit: the reset itself persists the freshly sourced content so
+    // the tab can be restored even if the browser is closed before the first change.
+    await recovery.resetForSource()
+    expect((await store.read('recovery-1'))?.sceneVersion).toBe(1)
     recovery.disposeRecovery()
   })
 

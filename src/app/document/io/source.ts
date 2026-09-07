@@ -59,7 +59,10 @@ export function createDocumentSourceActions({
     isEnabled: () => recoveryEnabled.value,
     // Renderer-backed so snapshots embed a real thumbnail the home page can preview.
     buildFigFile,
-    hasWritableSource: () => !!getFileHandle() || !!getFilePath() || !!getStorageBinding()
+    // A browser file handle is not a reason to skip snapshots: unlike a Tauri
+    // path or a synced storage binding, it cannot be reopened after a browser
+    // restart, so the snapshot is the tab's only persistence there.
+    hasWritableSource: () => !!getFilePath() || !!getStorageBinding()
   })
 
   const { saveFigFile, saveFigFileAs, writeFile } = createSaveActions({
@@ -107,7 +110,9 @@ export function createDocumentSourceActions({
     setDownloadName(figDownloadName(fileName, sourceFormat))
     setSourceIdentity({ handle: handle ?? null, path: path ?? null })
     setSavedVersion(state.sceneVersion)
-    void recovery.markProtectedVersion(state.sceneVersion)
+    void recovery.resetForSource().catch((error) => {
+      console.warn('[Recovery] Failed to reset recovery for the new source:', error)
+    })
     if (handle) {
       void rememberRecentBrowserFile(handle).catch((error) =>
         console.warn('[Recent files] Failed to record the opened file', error)
@@ -130,7 +135,19 @@ export function createDocumentSourceActions({
     state.documentName = documentName
     state.autosaveEnabled = true
     setSavedVersion(state.sceneVersion)
-    void recovery.markProtectedVersion(state.sceneVersion)
+    void recovery.resetForSource().catch((error) => {
+      console.warn('[Recovery] Failed to reset recovery for the new source:', error)
+    })
+  }
+
+  function attachRecoveredFileHandle(handle: FileSystemFileHandle, fileName: string) {
+    // Re-links a restored tab to the file it was originally opened from so later
+    // saves write back to it. Recovery keeps snapshotting on purpose: the tab
+    // would otherwise be lost again on the next browser restart.
+    setFileHandle(handle)
+    setDownloadName(fileName)
+    setSourceIdentity({ handle, path: null })
+    void startWatchingFile()
   }
 
   function setPlannedFilePath(path: string) {
@@ -156,6 +173,7 @@ export function createDocumentSourceActions({
   return {
     setDocumentSource,
     setStorageDocumentSource,
+    attachRecoveredFileHandle,
     setPlannedFilePath,
     startWatchingCurrentFile,
     disposeDocumentIO,
