@@ -1,6 +1,7 @@
 import type { ChatTransport, UIMessage } from 'ai'
 
 import type { CollabReturn } from '@/app/collab/context'
+import type { RecoverySnapshotMeta } from '@/app/document/recovery/types'
 import type { EditorStore } from '@/app/editor/session/create'
 import { createNavigationBenchmarkHooks } from '@/app/performance/navigation/hooks'
 import type { NavigationBenchmarkHooks } from '@/app/performance/navigation/hooks'
@@ -21,11 +22,36 @@ export interface OpenPencilTestHooks {
   }
 }
 
+export interface OpenPencilDebugTabInfo {
+  id: string
+  name: string
+  kind: TabKind
+  active: boolean
+  recoveryId: string
+  source: 'handle' | 'path' | 'storage' | 'none'
+  sceneVersion: number
+}
+
+type TabKind = 'home' | 'document'
+
+/**
+ * Console-facing introspection for tab/recovery state, so silent restore or
+ * close problems can be diagnosed from the running app without attaching a
+ * debugger: `window.openPencil.debug.tabs()`, `.recoverySnapshots()`,
+ * `.exportDiagnostics()`.
+ */
+export interface OpenPencilDebugHooks {
+  tabs(): OpenPencilDebugTabInfo[]
+  recoverySnapshots(): Promise<RecoverySnapshotMeta[]>
+  exportDiagnostics(): Promise<string>
+}
+
 export interface OpenPencilWindowAPI {
   getStore?: () => EditorStore
   setChatTransport?: (factory: () => ChatTransport<UIMessage>) => void
   openFile?: (path: string) => Promise<void>
   test?: OpenPencilTestHooks
+  debug?: OpenPencilDebugHooks
 }
 
 declare global {
@@ -78,4 +104,9 @@ export function exposeChatTransportOverride(
 
 export function setOpenPencilOpenFileHandler(openFile: (path: string) => Promise<void>) {
   windowAPI().openFile = openFile
+}
+
+export function exposeDebugHooks(hooks: OpenPencilDebugHooks) {
+  if (!IS_BROWSER) return
+  windowAPI().debug = hooks
 }

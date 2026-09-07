@@ -8,8 +8,14 @@ import { populateLazyFigImportRoots } from '@open-pencil/core/kiwi'
 import { computeAllLayouts } from '@open-pencil/core/layout'
 import type { SceneGraph } from '@open-pencil/scene-graph'
 
-import { setOpenPencilStore } from '@/app/browser-bridge'
-import { describeDiagnosticError, recordStorageFailure } from '@/app/diagnostics'
+import { setOpenPencilStore, exposeDebugHooks } from '@/app/browser-bridge'
+import type { OpenPencilDebugTabInfo } from '@/app/browser-bridge'
+import {
+  describeDiagnosticError,
+  diagnostics,
+  recordRecoveryOperation,
+  recordStorageFailure
+} from '@/app/diagnostics'
 import { readFigDocument } from '@/app/document/io/fig'
 import { applyImportedDocument } from '@/app/document/io/imported-document'
 import type { DocumentSourceIdentity } from '@/app/document/io/types'
@@ -34,6 +40,12 @@ import { getLocalCanvasStore } from '@/app/storage/local-store'
 import { seedStorageCanvasFromRemote } from '@/app/storage/sync/persist'
 import { createFileOpenCoordinator } from '@/app/tabs/open/coordinator'
 import { findTabByFileIdentity } from '@/app/tabs/open/identity'
+import {
+  finalizeClosedTabRecovery,
+  isPristineBlankDocumentTab,
+  markStoreRestoreReused,
+  reattachRestoredFileHandle
+} from '@/app/tabs/recovery'
 
 export type TabKind = 'home' | 'document'
 
@@ -158,7 +170,7 @@ export async function closeTab(tabId: string): Promise<void> {
   coverThumbnailListeners.get(closingTab.store)?.()
   coverThumbnailListeners.delete(closingTab.store)
   closingTab.store.preparationController.dispose()
-  await closingTab.store.markRecoveryClosed()
+  await finalizeClosedTabRecovery(closingTab)
   closingTab.store.dispose()
   tabsRef.value = tabsRef.value.filter((t) => t.id !== tabId)
 
@@ -507,12 +519,16 @@ export async function restoreRecoverySnapshot(id: string): Promise<void> {
   if (!snapshot) throw new Error('Recovery snapshot is no longer available')
 
   // Restores must never replace an existing document tab: reusing a restored
-  // 'Untitled' tab for the next snapshot would clobber its content and delete
-  // the previously adopted snapshot. Only an active home tab is reused.
+  // 'Untitled' tab for the next snapshot would clobber its content and orphan
+  // the previously adopted snapshot as a ghost. Besides an active home tab, the
+  // pristine blank document tab created at browser startup is reused so the
+  // first restore does not stack next to a redundant Untitled tab.
   const current = activeTab.value
   let store: EditorStore
   if (current?.kind === 'home') {
     leaveHome(current.id)
+    store = current.store
+  } else if (current && isPristineBlankDocumentTab(current)) {
     store = current.store
   } else {
     store = createTab().store
@@ -540,9 +556,22 @@ export async function restoreRecoverySnapshot(id: string): Promise<void> {
       },
       load
     )
+    markStoreRestoreReused(store)
+    void reattachRestoredFileHandle(store, snapshot.documentName)
+    recordRecoveryOperation({
+      operation: 'restore',
+      outcome: 'ok',
+      documentName: snapshot.documentName
+    })
     succeeded = true
   } catch (error) {
     failPreparation(load, 'decode-failed', error)
+    recordRecoveryOperation({
+      operation: 'restore',
+      outcome: 'failed',
+      documentName: snapshot.documentName,
+      errorName: error instanceof Error ? error.name : null
+    })
     throw error
   } finally {
     if (succeeded) load.complete()
@@ -550,7 +579,18 @@ export async function restoreRecoverySnapshot(id: string): Promise<void> {
 }
 
 export async function prepareForReload(): Promise<void> {
-  await Promise.all(tabsRef.value.map((tab) => tab.store.persistRecoveryNow()))
+  const results = await Promise.allSettled(
+    tabsRef.value.map((tab) => tab.store.persistRecoveryNow())
+  )
+  for (const result of results) {
+    if (result.status !== 'rejected') continue
+    console.warn('[Recovery] Failed to persist a tab before reload:', result.reason)
+    recordRecoveryOperation({
+      operation: 'prepare-reload',
+      outcome: 'failed',
+      errorName: result.reason instanceof Error ? result.reason.name : null
+    })
+  }
 }
 
 /**
@@ -560,6 +600,7 @@ export async function prepareForReload(): Promise<void> {
  */
 export async function restoreOpenRecoverySnapshots(): Promise<RecoverySnapshotMeta[]> {
   const remaining: RecoverySnapshotMeta[] = []
+  let restored = 0
   for (const snapshot of await listRecoverySnapshots()) {
     if (snapshot.closed) {
       remaining.push(snapshot)
@@ -567,16 +608,63 @@ export async function restoreOpenRecoverySnapshots(): Promise<RecoverySnapshotMe
     }
     try {
       await restoreRecoverySnapshot(snapshot.id)
+      restored++
     } catch (error) {
       console.warn('[Recovery] Automatic restore failed:', error)
       remaining.push(snapshot)
     }
   }
+  if (restored > 0 || remaining.length > 0) {
+    recordRecoveryOperation({
+      operation: 'restore',
+      outcome: 'ok',
+      detail: `automatic-restore:remaining-${remaining.length}`,
+      count: restored
+    })
+  }
   return remaining
 }
 
+function debugTabInfo(): OpenPencilDebugTabInfo[] {
+  return tabsRef.value.map((tab) => {
+    const identity = tab.store.getSourceIdentity()
+    return {
+      id: tab.id,
+      name: tab.store.state.documentName,
+      kind: tab.kind,
+      active: tab.id === activeTabId.value,
+      recoveryId: tab.store.getRecoveryId(),
+      source: identity.handle
+        ? 'handle'
+        : identity.path
+          ? 'path'
+          : tab.store.getStorageBinding()
+            ? 'storage'
+            : 'none',
+      sceneVersion: tab.store.state.sceneVersion
+    }
+  })
+}
+
+exposeDebugHooks({
+  tabs: debugTabInfo,
+  recoverySnapshots: () => getRecoveryStore().list(),
+  exportDiagnostics: () => diagnostics.export()
+})
+
 export function tabCount(): number {
   return tabsRef.value.length
+}
+
+export function resetTabsForTests(): void {
+  for (const tab of tabsRef.value) {
+    coverThumbnailListeners.get(tab.store)?.()
+    coverThumbnailListeners.delete(tab.store)
+    tab.store.dispose()
+  }
+  tabsRef.value = []
+  activeTabId.value = ''
+  nextTabId = 1
 }
 
 export function useTabsStore() {

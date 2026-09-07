@@ -89,6 +89,7 @@ export function createEditorStoreModules(
     discardRecovery: documentIO.discardRecovery,
     setDocumentSource: documentIO.setDocumentSource,
     setStorageDocumentSource: documentIO.setStorageDocumentSource,
+    attachRecoveredFileHandle: documentIO.attachRecoveredFileHandle,
     setPlannedFilePath: documentIO.setPlannedFilePath,
     startWatchingCurrentFile: documentIO.startWatchingCurrentFile,
     dispose: () => {

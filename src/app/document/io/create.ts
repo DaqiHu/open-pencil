@@ -81,6 +81,7 @@ export function createDocumentIOActions(
     discardRecovery: sourceActions.discardRecovery,
     setDocumentSource: sourceActions.setDocumentSource,
     setStorageDocumentSource: sourceActions.setStorageDocumentSource,
+    attachRecoveredFileHandle: sourceActions.attachRecoveredFileHandle,
     setPlannedFilePath: sourceActions.setPlannedFilePath,
     startWatchingCurrentFile: sourceActions.startWatchingCurrentFile,
     disposeDocumentIO: sourceActions.disposeDocumentIO,

@@ -3,9 +3,24 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 
 import { createIdbRecoveryStore } from '@/app/document/recovery/idb'
 import { createMemoryRecoveryStore } from '@/app/document/recovery/memory'
-import { getRecoveryStore, resetRecoveryStoreForTests } from '@/app/document/recovery/store'
+import {
+  createResilientRecoveryStore,
+  getRecoveryStore,
+  resetRecoveryStoreForTests
+} from '@/app/document/recovery/store'
+import type { RecoveryStore } from '@/app/document/recovery/types'
 
 const bytes = new Uint8Array([1, 2, 3, 4])
+
+function snapshotInput(id: string, closed = false) {
+  return {
+    id,
+    documentName: 'Agent draft',
+    sceneVersion: 1,
+    figBytes: bytes,
+    closed
+  }
+}
 
 describe('document recovery store', () => {
   beforeEach(async () => {
@@ -136,5 +151,69 @@ describe('document recovery store', () => {
       closed: false
     })
     expect(notifications).toBe(3)
+  })
+
+  test('setClosed falls back to memory when the primary store fails', async () => {
+    const primary = createMemoryRecoveryStore()
+    await primary.write(snapshotInput('recovery-1'))
+    const broken: RecoveryStore = {
+      ...primary,
+      async setClosed() {
+        throw new Error('IndexedDB is blocked')
+      }
+    }
+    const store = createResilientRecoveryStore(broken)
+
+    await store.setClosed('recovery-1', true)
+
+    expect((await store.read('recovery-1'))?.closed).toBe(true)
+  })
+
+  test('a hung primary operation times out and falls back to memory', async () => {
+    const primary = createMemoryRecoveryStore()
+    await primary.write(snapshotInput('recovery-1'))
+    const hung: RecoveryStore = {
+      ...primary,
+      write: (input) =>
+        new Promise((resolve) => {
+          // Never settles: simulates a wedged IndexedDB transaction.
+          void input
+          void resolve
+        })
+    }
+    const store = createResilientRecoveryStore(hung, 25)
+
+    const metadata = await store.write(snapshotInput('recovery-2'))
+    expect(metadata.id).toBe('recovery-2')
+
+    const listed = await store.list()
+    expect(listed.map((snapshot) => snapshot.id).toSorted()).toEqual(['recovery-1', 'recovery-2'])
+  })
+
+  test('mutations keep reaching the primary store after it recovers', async () => {
+    const primary = createMemoryRecoveryStore()
+    await primary.write(snapshotInput('recovery-1'))
+    let failNext = true
+    const flaky: RecoveryStore = {
+      ...primary,
+      async setClosed(id, closed) {
+        if (failNext) {
+          failNext = false
+          throw new Error('transient IndexedDB failure')
+        }
+        return primary.setClosed(id, closed)
+      }
+    }
+    const store = createResilientRecoveryStore(flaky)
+
+    await store.setClosed('recovery-1', true)
+    expect((await primary.read('recovery-1'))?.closed).toBe(false)
+    expect((await store.read('recovery-1'))?.closed).toBe(true)
+
+    // The fallback is per-session: a later mutation still lands on the primary
+    // store so the deletion does not resurrect on the next session.
+    await store.remove('recovery-1')
+    expect(await primary.read('recovery-1')).toBeNull()
+    expect(await store.read('recovery-1')).toBeNull()
   })
 })
