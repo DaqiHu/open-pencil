@@ -89,10 +89,29 @@ export function registerOriginalArchiveRequest(
   originalArchiveRequests.set(graph, entry)
 }
 
+// The archive bytes come from the fig session worker over a shared port. A lost
+// reply (worker disposed after a population fallback, port handler replaced,
+// worker crash) must not hang the export — and with it the recovery writer —
+// forever, so the wait is bounded and falls back to a full re-encode.
+const ORIGINAL_ARCHIVE_REQUEST_TIMEOUT_MS = 10_000
+
 export async function requestOriginalArchive(graph: SceneGraph): Promise<Uint8Array | null> {
   const entry = originalArchiveRequests.get(graph)
   if (!entry?.valid) return null
-  const archive = await entry.request()
+  let timedOut = false
+  const archive = await Promise.race([
+    entry.request(),
+    new Promise<null>((resolve) => {
+      setTimeout(() => {
+        timedOut = true
+        resolve(null)
+      }, ORIGINAL_ARCHIVE_REQUEST_TIMEOUT_MS)
+    })
+  ])
+  if (timedOut) {
+    entry.valid = false
+    return null
+  }
   return originalArchiveRequests.get(graph)?.valid === true &&
     originalArchiveRequests.get(graph) === entry
     ? archive
@@ -160,9 +179,14 @@ function createPopulationWorkerClient(
     emitTelemetry({ event: 'stale', reason: 'graph-mutation' })
   }
   let unbind: (() => void) | undefined
+  let portMessageHandler: ((event: MessageEvent<FigSessionResponse>) => void) | undefined
   const releaseSubscription = () => {
     unbind?.()
     unbind = undefined
+    if (port && portMessageHandler) {
+      port.removeEventListener('message', portMessageHandler)
+      portMessageHandler = undefined
+    }
   }
   const fail = (emit = true) => {
     stale = true
@@ -219,8 +243,13 @@ function createPopulationWorkerClient(
     })
   }
   if (port) {
-    port.onmessage = (event: MessageEvent<FigSessionResponse>) =>
+    // The session port is shared with the original-archive channel that read.ts
+    // installed via onmessage before registration. Assigning onmessage here
+    // would replace that handler and silently drop every archive reply, which
+    // hangs fig export (and the recovery writer behind it) forever.
+    portMessageHandler = (event: MessageEvent<FigSessionResponse>) =>
       receive(event.data as WorkerResult)
+    port.addEventListener('message', portMessageHandler)
     port.start()
   } else {
     worker.onmessage = (event: MessageEvent<WorkerResult>) => receive(event.data)

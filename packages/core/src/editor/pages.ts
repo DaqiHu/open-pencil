@@ -68,7 +68,10 @@ export function createPageActions(ctx: EditorContext) {
       return null
     }
     if (workerResult !== null) return workerResult
-    worker?.terminate()
+    // Do not terminate the worker on fallback: it doubles as the fig session
+    // worker holding the original archive bytes that exports reuse, so killing
+    // it here would break the archive fast path. Graph disposal owns
+    // termination; the stale client short-circuits future populate calls.
     populationWorkerInstance = undefined
     return populateLazyFigImportRoots(ctx.graph, [pageId])
   }
