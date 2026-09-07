@@ -43,6 +43,7 @@
 
 ### Fixed
 
+- Resolve `$name` references in imported `.pen` fills, stroke fills, font families, dimensions, and spacing without requiring a `--` prefix. (#563)
 - Prevent the stock photo tool from replacing text, lines, structural layers, or containers with content while supporting closed shape geometry.
 - Restore browser-persisted local font access at startup so installed document fonts resolve after a reload without clicking Retry fonts, and heal substituted fonts automatically when access is granted mid-session.
 - Preserve explicit text alignment metadata on imported Figma vectors across save and reload.
