@@ -1,6 +1,7 @@
 # OpenPencil
 
 This is DaqiHu/open-pencil fork. Update the fork (pull from upstream) before you make any changes.
+Never file issues on the upstream open-pencil/open-pencil repository under any circumstances — file all issues on DaqiHu/open-pencil.
 
 Vue 3 + CanvasKit (Skia WASM) + Yoga WASM design editor. Tauri v2 desktop, also runs in browser.
 
