@@ -18,8 +18,9 @@ test('keeps an unsaved document recoverable after its tab closes', async ({ brow
 
   await page.keyboard.press('ControlOrMeta+t')
   await expect(page.getByTestId('tabbar-tab')).toHaveCount(2)
-  await page.getByTestId('tabbar-tab').first().getByTestId('tabbar-close').click()
+  await page.locator('[data-slot="tab-item"]').first().getByTestId('tabbar-close').click()
   await expect(page.getByTestId('tabbar-tab')).toHaveCount(1)
+  await expect(page.getByTestId('recent-files-home')).toBeVisible()
   await expect
     .poll(() =>
       page.evaluate(async () => {

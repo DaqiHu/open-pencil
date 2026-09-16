@@ -54,12 +54,6 @@ export interface OpenPencilWindowAPI {
   debug?: OpenPencilDebugHooks
 }
 
-declare global {
-  interface Window {
-    openPencil?: OpenPencilWindowAPI
-  }
-}
-
 let activeStore: EditorStore | null = null
 
 function windowAPI(): OpenPencilWindowAPI {

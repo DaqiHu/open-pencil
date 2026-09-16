@@ -1,5 +1,4 @@
 <script setup lang="ts" generic="T extends string | number">
-import { tv } from 'tailwind-variants'
 import {
   SelectContent,
   SelectItem,
@@ -13,10 +12,12 @@ import {
   SelectValue,
   SelectViewport
 } from 'reka-ui'
+import { tv } from 'tailwind-variants'
+import { computed } from 'vue'
 
+import type { ComponentUI } from '@/components/ui/types'
 import theme from '@/theme/select/app'
 import type { AppSelectTheme } from '@/theme/select/app'
-import type { ComponentUI } from '@/components/ui/types'
 
 interface AppSelectProps<TValue extends string | number> {
   label?: string
@@ -30,16 +31,25 @@ defineOptions({ inheritAttrs: false })
 const { options, label, placeholder, ui } = defineProps<AppSelectProps<T>>()
 const modelValue = defineModel<T>({ required: true })
 const styles = tv(theme)()
+const selectedLabel = computed(
+  () => options.find((option) => option.value === modelValue.value)?.label
+)
 </script>
 
 <template>
   <SelectRoot v-model="modelValue">
+    <SelectTrigger v-if="$slots.trigger" as-child v-bind="$attrs" :aria-label="label">
+      <slot name="trigger" />
+    </SelectTrigger>
     <SelectTrigger
+      v-else
       v-bind="$attrs"
       :class="styles.trigger({ class: ui?.trigger })"
       :aria-label="label"
     >
-      <SelectValue :placeholder="placeholder" :class="styles.value({ class: ui?.value })" />
+      <SelectValue :placeholder="placeholder" :class="styles.value({ class: ui?.value })">
+        {{ selectedLabel ?? placeholder }}
+      </SelectValue>
       <icon-lucide-chevron-down class="ml-1 size-3 shrink-0 text-muted" />
     </SelectTrigger>
     <SelectPortal>

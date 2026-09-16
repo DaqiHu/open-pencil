@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, provide, ref } from 'vue'
-import { useEventListener } from '@vueuse/core'
 import { useHead } from '@unhead/vue'
+import { useEventListener } from '@vueuse/core'
+import { onMounted, onUnmounted, provide, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
-import { exposeCollaborationActions } from '@/app/browser-bridge'
-import { appRuntimeConfig } from '@/app/runtime/config'
 import { startMCPRuntime, stopMCPRuntime } from '@/app/automation/mcp/runtime'
+import { startWebMCP } from '@/app/automation/webmcp/runtime'
+import { exposeCollaborationActions } from '@/app/browser-bridge'
 import { COLLAB_KEY, useCollab } from '@/app/collab/use'
 import { createDemoShapes } from '@/app/demo/document'
+import { appRuntimeConfig } from '@/app/runtime/config'
 import { useKeyboard } from '@/app/shell/keyboard/use'
 import { openFileFromPath, useEditorMenu } from '@/app/shell/menu/use'
 import {
@@ -20,13 +21,13 @@ import {
   tabCount
 } from '@/app/tabs'
 import { isTauri } from '@/app/tauri/env'
-import FontStatusBanner from '@/components/font-status/FontStatusBanner.vue'
 import CommandPalette from '@/components/commands/CommandPalette.vue'
-import SafariBanner from '@/components/SafariBanner.vue'
-import TabBar from '@/components/TabBar.vue'
-import RenameSelectionDialog from '@/components/selection/RenameSelectionDialog.vue'
 import EditorWorkspace from '@/components/editor/EditorWorkspace.vue'
+import FontStatusBanner from '@/components/font-status/FontStatusBanner.vue'
 import HomeWorkspace from '@/components/home/HomeWorkspace.vue'
+import SafariBanner from '@/components/SafariBanner.vue'
+import RenameSelectionDialog from '@/components/selection/RenameSelectionDialog.vue'
+import TabBar from '@/components/TabBar.vue'
 
 const route = useRoute()
 const createdInitialTab = tabCount() === 0
@@ -80,7 +81,10 @@ async function bindAssociatedFileOpen(): Promise<void> {
   await openPendingAssociatedFiles()
 }
 
+let stopWebMCP: (() => void) | undefined
+
 onMounted(async () => {
+  stopWebMCP = startWebMCP(getActiveStore)
   await startMCPRuntime(getActiveStore)
 
   try {
@@ -91,6 +95,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  stopWebMCP?.()
   void stopMCPRuntime()
   fileAssociationCleanup.value?.()
 })

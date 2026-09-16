@@ -2,17 +2,19 @@
 import { AlertDialogCancel, AlertDialogDescription, AlertDialogTitle } from 'reka-ui'
 import { onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
+
 import { useI18n } from '@open-pencil/vue'
+
+import type { RecoverySnapshotMeta } from '@/app/document/recovery'
 import { recoveryEnabled } from '@/app/document/recovery/preferences'
 import { useNotificationMessages } from '@/app/i18n/notifications'
+import { toast } from '@/app/shell/ui'
+import { formatStorageBytes } from '@/app/storage/format-bytes'
 import {
   discardRecoverySnapshot,
   restoreOpenRecoverySnapshots,
   restoreRecoverySnapshot
 } from '@/app/tabs'
-import type { RecoverySnapshotMeta } from '@/app/document/recovery'
-import { formatStorageBytes } from '@/app/storage/format-bytes'
-import { toast } from '@/app/shell/ui'
 import AppButton from '@/components/ui/button/AppButton.vue'
 
 const { recovery, common } = useI18n()
