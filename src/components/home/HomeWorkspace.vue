@@ -97,7 +97,7 @@ const workspace = useDocumentWorkspace<RecentHomeDocument>({
       return createStorageWorkspaceSource(() => undefined).loadPreview(document.documentId)
     },
     subscribe(listener) {
-      return getRecoveryStore().subscribe?.(listener) ?? (() => {})
+      return getRecoveryStore().subscribe?.(listener) ?? (() => undefined)
     }
   },
   refreshOnFocus: false,
